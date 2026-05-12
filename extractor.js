@@ -286,7 +286,7 @@ async function extractBibliographyFromPdf(pdfUrl) {
   references = references
     .map(ref => ref.trim())
     .filter(ref => ref.length > 30);
-
+  
   const output = {
     thesis_url: pdfUrl,
     extracted_at: new Date().toISOString(),
@@ -298,6 +298,10 @@ async function extractBibliographyFromPdf(pdfUrl) {
     },
     parsing_mode: mode,
     total_references: references.length,
+    bibliography_text_preview:
+    references.length === 0
+    ? bibliographyText.slice(0, 2500)
+    : undefined,
     bibliography: references.map((ref, index) => ({
       id: index + 1,
       raw: ref
