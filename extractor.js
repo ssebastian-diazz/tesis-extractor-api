@@ -260,6 +260,138 @@ function splitReferencesByStyle(text, mode) {
   return parseHeuristicReferences(text);
 }
 
+function assessBibliographyQuality({
+  mode,
+  references,
+  bibliographyText,
+  status
+}) {
+  if (status !== "OK") {
+    return {
+      tier: "C",
+      label: status,
+      downloadable: bibliographyText && bibliographyText.length > 100,
+      embedding_ready: false,
+      user_warning: "No se pudo extraer una bibliografía confiable de este PDF."
+    };
+  }
+
+  const refsCount = references.length;
+  const doiCount = (bibliographyText.match(/doi\.org|doi\s*:/gi) || []).length;
+  const yearCount = (bibliographyText.match(/\b(19|20)\d{2}\b/g) || []).length;
+
+  if (mode === "apa" && refsCount >= 10) {
+    return {
+      tier: "A1",
+      label: "APA limpio/moderno",
+      downloadable: true,
+      embedding_ready: true,
+      user_warning: null
+    };
+  }
+
+  if (mode === "numbered" && refsCount >= 10) {
+    return {
+      tier: "A2",
+      label: "Numerado consistente",
+      downloadable: true,
+      embedding_ready: true,
+      user_warning: null
+    };
+  }
+
+  if (mode === "bullets" && refsCount >= 5) {
+    return {
+      tier: "A3",
+      label: "Bullets limpios",
+      downloadable: true,
+      embedding_ready: true,
+      user_warning: null
+    };
+  }
+
+  if (refsCount >= 5) {
+    return {
+      tier: "B1",
+      label: "Bibliografía parcialmente estructurada",
+      downloadable: true,
+      embedding_ready: true,
+      user_warning: "Bibliografía detectada parcialmente; puede contener cortes o referencias fusionadas."
+    };
+  }
+
+  if (refsCount > 0) {
+    return {
+      tier: "B2",
+      label: "Bibliografía débil/parcial",
+      downloadable: true,
+      embedding_ready: true,
+      user_warning: "Extracción limitada; revisar manualmente antes de citar."
+    };
+  }
+
+  if (bibliographyText.length > 300 && (doiCount > 0 || yearCount > 5)) {
+    return {
+      tier: "C1",
+      label: "Texto bibliográfico bruto recuperado",
+      downloadable: true,
+      embedding_ready: true,
+      user_warning: "No se pudieron separar referencias, pero se recuperó texto bibliográfico útil."
+    };
+  }
+
+  return {
+    tier: "C2",
+    label: "Bibliografía no confiable",
+    downloadable: false,
+    embedding_ready: false,
+    user_warning: "No se detectaron referencias utilizables."
+  };
+}
+
+function buildBibliographyDownloadText({
+  references,
+  bibliographyText,
+  quality
+}) {
+  if (references.length > 0) {
+    return references
+      .map((ref, index) => `${index + 1}. ${ref}`)
+      .join("\n\n");
+  }
+
+  if (quality.downloadable && bibliographyText) {
+    return bibliographyText;
+  }
+
+  return "";
+}
+
+function buildBibliographyEmbeddingText({
+  references,
+  bibliographyText,
+  maxReferences = 40,
+  maxCharsPerReference = 300,
+  maxRawChars = 9000
+}) {
+  if (references.length > 0) {
+    return references
+      .slice(0, maxReferences)
+      .map(ref =>
+        ref
+          .replace(/\s+/g, " ")
+          .trim()
+          .slice(0, maxCharsPerReference)
+      )
+      .join("\n");
+  }
+
+  return bibliographyText
+    .replace(/\s+/g, " ")
+    .trim()
+    .slice(0, maxRawChars);
+}
+
 // =====================================================
 // OUTLINE
 // =====================================================
@@ -428,26 +560,55 @@ async function extractBibliographyFromPdf(pdfUrl) {
     .map(ref => ref.trim())
     .filter(ref => ref.length > 30);
 
+const quality = assessBibliographyQuality({
+  mode,
+  references,
+  bibliographyText,
+  status: "OK"
+});
+
+const bibliographyDownloadText = buildBibliographyDownloadText({
+  references,
+  bibliographyText,
+  quality
+});
+
+const bibliographyEmbeddingText = buildBibliographyEmbeddingText({
+  references,
+  bibliographyText
+});
+  
   const output = {
-    thesis_url: pdfUrl,
-    extracted_at: new Date().toISOString(),
-    status: "OK",
-    bibliography_section: bibliographySection,
-    bibliography_pages: {
-      start: bibliographyStartPage,
-      end: bibliographyEndPage
-    },
-    parsing_mode: mode,
-    total_references: references.length,
-    bibliography_text_preview:
-      references.length === 0
-        ? bibliographyText.slice(0, 2500)
-        : undefined,
-    bibliography: references.map((ref, index) => ({
-      id: index + 1,
-      raw: ref
-    }))
-  };
+  thesis_url: pdfUrl,
+  extracted_at: new Date().toISOString(),
+  status: "OK",
+  bibliography_section: bibliographySection,
+  bibliography_pages: {
+    start: bibliographyStartPage,
+    end: bibliographyEndPage
+  },
+  parsing_mode: mode,
+  total_references: references.length,
+
+  bibliography_quality_tier: quality.tier,
+  bibliography_quality_label: quality.label,
+  bibliography_downloadable: quality.downloadable,
+  bibliography_embedding_ready: quality.embedding_ready,
+  bibliography_user_warning: quality.user_warning,
+
+  bibliography_download_text: bibliographyDownloadText,
+  bibliography_embedding_text: bibliographyEmbeddingText,
+
+  bibliography_text_preview:
+    references.length === 0
+      ? bibliographyText.slice(0, 2500)
+      : undefined,
+
+  bibliography: references.map((ref, index) => ({
+    id: index + 1,
+    raw: ref
+  }))
+};
 
   return output;
 }
