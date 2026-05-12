@@ -6,6 +6,8 @@ const BIBLIOGRAPHY_PATTERNS = [
   /referencias bibliográficas/i,
   /referencias/i,
   /fuentes consultadas/i,
+  /literatura citada/i,
+  /obras citadas/i,
   /works cited/i
 ];
 
@@ -32,18 +34,9 @@ function cleanText(text) {
     .trim();
 }
 
-function detectReferenceMode(text) {
-  const numberedMatches = text.match(/\b\d+\.\s/g) || [];
-  const bulletMatches = text.match(/[•▪◦●■□◆➜►\-]\s/g) || [];
-
-  console.log("\n📊 DETECCIÓN FORMATO");
-  console.log(`🔢 Posibles referencias numeradas: ${numberedMatches.length}`);
-  console.log(`• Posibles bullets: ${bulletMatches.length}`);
-
-  if (numberedMatches.length >= 5) return "numbered";
-  if (bulletMatches.length >= 5) return "bullets";
-  return "heuristic";
-}
+// =====================================================
+// PARSER NUMERADO
+// =====================================================
 
 function parseNumberedReferences(text) {
   console.log("\n🧠 PARSING NUMERADO...\n");
@@ -85,6 +78,54 @@ function parseNumberedReferences(text) {
   return references;
 }
 
+// =====================================================
+// PARSER [1] [2] [3]
+// =====================================================
+
+function parseBracketNumberedReferences(text) {
+  console.log("\n🧠 PARSING BRACKET NUMBERED...\n");
+
+  const references = [];
+  const regex = /\[(\d+)\]\s/g;
+  const matches = [...text.matchAll(regex)];
+
+  if (!matches.length) return references;
+
+  let expected = 1;
+  let currentStart = null;
+
+  for (let i = 0; i < matches.length; i++) {
+    const number = parseInt(matches[i][1], 10);
+
+    if (number !== expected) continue;
+
+    if (currentStart !== null) {
+      const reference = text.slice(currentStart, matches[i].index).trim();
+
+      if (reference.length > 30) {
+        references.push(reference);
+      }
+    }
+
+    currentStart = matches[i].index;
+    expected++;
+  }
+
+  if (currentStart !== null) {
+    const finalReference = text.slice(currentStart).trim();
+
+    if (finalReference.length > 30) {
+      references.push(finalReference);
+    }
+  }
+
+  return references;
+}
+
+// =====================================================
+// PARSER BULLETS
+// =====================================================
+
 function parseBulletReferences(text) {
   console.log("\n🧠 PARSING BULLETS...\n");
 
@@ -93,6 +134,58 @@ function parseBulletReferences(text) {
     .map(r => r.trim())
     .filter(r => r.length > 40);
 }
+
+// =====================================================
+// PARSER APA / REFERENCIAS CORRIDAS
+// =====================================================
+
+function parseApaReferences(text) {
+  console.log("\n🧠 PARSING APA / REFERENCIAS CORRIDAS...\n");
+
+  text = text
+    .replace(/^X?\s*I?\s*\.?\s*Referencias\s*/i, "")
+    .replace(/^Referencias\s*/i, "")
+    .replace(/^Bibliograf[ií]a\s*/i, "")
+    .trim();
+
+  /*
+    Corta antes de patrones tipo:
+    Apellido, A. (2020)
+    Achtman M, Zhou Z ... (2020)
+    Abcam. Counting cells ... (2020)
+  */
+
+  const startRegex =
+    /(?=(?:[A-ZÁÉÍÓÚÑ][A-Za-zÁÉÍÓÚÑáéíóúñüÜ\-'’\.]+(?:,|\s)[^\.]{0,220}?\([12][0-9]{3}\)|[A-ZÁÉÍÓÚÑ][A-Za-zÁÉÍÓÚÑáéíóúñüÜ\-'’\.]+(?:,|\s)[^\.]{0,220}?\s[12][0-9]{3}\b))/g;
+
+  const matches = [...text.matchAll(startRegex)];
+
+  if (matches.length < 2) {
+    return parseHeuristicReferences(text);
+  }
+
+  const references = [];
+
+  for (let i = 0; i < matches.length; i++) {
+    const start = matches[i].index;
+    const end =
+      i + 1 < matches.length
+        ? matches[i + 1].index
+        : text.length;
+
+    const ref = text.slice(start, end).trim();
+
+    if (ref.length > 40) {
+      references.push(ref);
+    }
+  }
+
+  return references;
+}
+
+// =====================================================
+// PARSER HEURÍSTICO
+// =====================================================
 
 function parseHeuristicReferences(text) {
   console.log("\n🧠 PARSING HEURÍSTICO...\n");
@@ -108,7 +201,7 @@ function parseHeuristicReferences(text) {
 
     if (/\b(19|20)\d{2}\b/.test(chunk)) score += 1;
     if (/https?:\/\//.test(chunk)) score += 2;
-    if (/Rev|Journal|Vol|DOI|Universidad|Dent|SciELO/i.test(chunk)) score += 1;
+    if (/Rev|Journal|Vol|DOI|Universidad|Dent|SciELO|PLOS|BMC|Nature|Science/i.test(chunk)) score += 1;
     if (chunk.length > 80) score += 1;
 
     if (score >= 2) {
@@ -118,6 +211,58 @@ function parseHeuristicReferences(text) {
 
   return references;
 }
+
+// =====================================================
+// DETECCIÓN DE ESTILO
+// =====================================================
+
+function detectReferenceStyle(text) {
+  const numberedMatches = text.match(/\b\d+\.\s/g) || [];
+  const bracketMatches = text.match(/\[\d+\]\s/g) || [];
+  const bulletMatches = text.match(/[•▪◦●■□◆➜►]\s/g) || [];
+  const apaYearMatches = text.match(/\([12][0-9]{3}\)/g) || [];
+  const doiMatches = text.match(/https?:\/\/doi\.org\/|doi\s*:/gi) || [];
+
+  console.log("\n📊 DETECCIÓN FORMATO");
+  console.log(`🔢 Numbered: ${numberedMatches.length}`);
+  console.log(`🔢 Bracket numbered: ${bracketMatches.length}`);
+  console.log(`• Bullets: ${bulletMatches.length}`);
+  console.log(`📅 APA years: ${apaYearMatches.length}`);
+  console.log(`🔗 DOI: ${doiMatches.length}`);
+
+  // OJO: APA antes que numbered si hay muchos años/DOIs.
+  // Esto evita que números sueltos como 5. o 10. dentro del texto engañen al parser.
+  if (apaYearMatches.length >= 5 || doiMatches.length >= 5) return "apa";
+  if (numberedMatches.length >= 5) return "numbered";
+  if (bracketMatches.length >= 5) return "bracket_numbered";
+  if (bulletMatches.length >= 5) return "bullets";
+
+  return "heuristic";
+}
+
+function splitReferencesByStyle(text, mode) {
+  if (mode === "numbered") {
+    return parseNumberedReferences(text);
+  }
+
+  if (mode === "bracket_numbered") {
+    return parseBracketNumberedReferences(text);
+  }
+
+  if (mode === "bullets") {
+    return parseBulletReferences(text);
+  }
+
+  if (mode === "apa") {
+    return parseApaReferences(text);
+  }
+
+  return parseHeuristicReferences(text);
+}
+
+// =====================================================
+// OUTLINE
+// =====================================================
 
 async function resolveOutlineSections(pdf) {
   const outline = await pdf.getOutline();
@@ -162,6 +307,10 @@ async function resolveOutlineSections(pdf) {
 
   return sections.sort((a, b) => a.page - b.page);
 }
+
+// =====================================================
+// EXTRACTOR PRINCIPAL
+// =====================================================
 
 async function extractBibliographyFromPdf(pdfUrl) {
   if (!pdfUrl || !/^https?:\/\//i.test(pdfUrl)) {
@@ -269,24 +418,16 @@ async function extractBibliographyFromPdf(pdfUrl) {
     };
   }
 
-  const mode = detectReferenceMode(bibliographyText);
+  const mode = detectReferenceStyle(bibliographyText);
 
   console.log(`\n🧠 MODO DETECTADO: ${mode}\n`);
 
-  let references = [];
-
-  if (mode === "numbered") {
-    references = parseNumberedReferences(bibliographyText);
-  } else if (mode === "bullets") {
-    references = parseBulletReferences(bibliographyText);
-  } else {
-    references = parseHeuristicReferences(bibliographyText);
-  }
+  let references = splitReferencesByStyle(bibliographyText, mode);
 
   references = references
     .map(ref => ref.trim())
     .filter(ref => ref.length > 30);
-  
+
   const output = {
     thesis_url: pdfUrl,
     extracted_at: new Date().toISOString(),
@@ -299,9 +440,9 @@ async function extractBibliographyFromPdf(pdfUrl) {
     parsing_mode: mode,
     total_references: references.length,
     bibliography_text_preview:
-    references.length === 0
-    ? bibliographyText.slice(0, 2500)
-    : undefined,
+      references.length === 0
+        ? bibliographyText.slice(0, 2500)
+        : undefined,
     bibliography: references.map((ref, index) => ({
       id: index + 1,
       raw: ref
