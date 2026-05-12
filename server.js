@@ -1,26 +1,27 @@
-const express = require("express");
-
-const app = express();
-app.use(express.json({ limit: "5mb" }));
-
-app.get("/", (req, res) => {
-  res.json({
-    ok: true,
-    message: "TESIUNAM extractor API running",
-    endpoints: ["POST /extract"]
-  });
-});
+const { extractBibliographyFromPdf } = require("./extractor");
 
 app.post("/extract", async (req, res) => {
-  res.json({
-    success: true,
-    message: "Endpoint /extract activo",
-    received: req.body
-  });
-});
+  try {
+    const { pdf_url } = req.body;
 
-const PORT = process.env.PORT || 3000;
+    if (!pdf_url) {
+      return res.status(400).json({
+        success: false,
+        error: "Missing pdf_url"
+      });
+    }
 
-app.listen(PORT, () => {
-  console.log(`Extractor API listening on port ${PORT}`);
+    const result = await extractBibliographyFromPdf(pdf_url);
+
+    res.json({
+      success: true,
+      ...result
+    });
+
+  } catch (error) {
+    res.status(500).json({
+      success: false,
+      error: error.message
+    });
+  }
 });
