@@ -454,7 +454,7 @@ async function extractBibliographyFromPdf(pdfUrl) {
 
   const response = await axios.get(pdfUrl, {
     responseType: "arraybuffer",
-    timeout: 90000
+    timeout: 200000
   });
 
   const pdfData = new Uint8Array(response.data);
