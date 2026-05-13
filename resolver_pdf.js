@@ -35,7 +35,7 @@ async function resolvePdfUrlFromDocNumber(docNumber) {
   console.log(`🔎 Buscando doc_number: ${cleanDocNumber}`);
 
   const searchResponse = await axios.get(searchUrl, {
-    timeout: 60000,
+    timeout: 120000,
     headers: {
       "User-Agent": "Mozilla/5.0"
     }
@@ -59,7 +59,7 @@ async function resolvePdfUrlFromDocNumber(docNumber) {
   console.log(`✅ Index encontrado: ${indexUrl}`);
 
   const indexResponse = await axios.get(indexUrl, {
-    timeout: 60000,
+    timeout: 120000,
     headers: {
       "User-Agent": "Mozilla/5.0"
     }
